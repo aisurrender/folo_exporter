@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "SuperMe: RSS Exporter",
+  "version": "1.0",
+  "description": "Export unread links from Follow.is to Markdown",
+  "permissions": ["activeTab", "scripting"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://app.folo.is/*",
+        "https://folo.is/*"
+      ],
+      "js": ["content.js"]
+    }
+  ]
+}
