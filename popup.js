@@ -105,19 +105,15 @@ async function handleFetch() {
 
 async function fetchAllUnread() {
   let hasMore = true;
-  let insertedBefore = null;
-  let consecutiveAllDuplicates = 0;
+  let offset = 0;
 
   while (hasMore) {
     const body = {
       limit: BATCH_SIZE,
       view: -1,
-      read: false
+      read: false,
+      offset: offset
     };
-
-    if (insertedBefore) {
-      body.insertedBefore = insertedBefore;
-    }
 
     const response = await fetch(`${API_BASE}/entries`, {
       method: 'POST',
@@ -137,7 +133,6 @@ async function fetchAllUnread() {
       hasMore = false;
     } else {
       // Process entries (with deduplication)
-      let newCount = 0;
       for (const entry of entries) {
         const id = entry.entries?.id;
         if (id && seenIds.has(id)) {
@@ -146,13 +141,11 @@ async function fetchAllUnread() {
         if (id) {
           seenIds.add(id);
         }
-        newCount++;
         articles.push({
           id: id,
           title: entry.entries?.title || 'Untitled',
           url: entry.entries?.url || '',
           publishedAt: entry.entries?.publishedAt,
-          insertedAt: entry.entries?.insertedAt,
           summary: entry.entries?.summary || '',
           feedTitle: entry.feeds?.title || 'Unknown',
           category: entry.subscriptions?.category || 'Uncategorized'
@@ -160,21 +153,7 @@ async function fetchAllUnread() {
       }
 
       progressCount.textContent = articles.length;
-
-      // Safety check: if all entries were duplicates, stop
-      if (newCount === 0) {
-        consecutiveAllDuplicates++;
-        if (consecutiveAllDuplicates >= 2) {
-          hasMore = false;
-          continue;
-        }
-      } else {
-        consecutiveAllDuplicates = 0;
-      }
-
-      // Get the oldest insertedAt for next batch
-      const lastEntry = entries[entries.length - 1];
-      insertedBefore = lastEntry.entries?.insertedAt;
+      offset += entries.length;
 
       // If we got less than BATCH_SIZE, we're done
       if (entries.length < BATCH_SIZE) {
