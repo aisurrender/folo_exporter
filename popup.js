@@ -167,7 +167,8 @@ async function init() {
     UI.showCacheStatus(cached.count, cached.fetchTime);
     UI.showClearButton();
     UI.setExportEnabled(true);
-    UI.setMarkAsReadEnabled(true);
+    // Mark as Read feature disabled - API endpoint not available
+    // UI.setMarkAsReadEnabled(true);
   }
 
   // Event listeners
@@ -238,7 +239,8 @@ async function handleFetch() {
     UI.showCacheStatus(articles.length, Date.now());
     UI.showClearButton();
     UI.setExportEnabled(true);
-    UI.setMarkAsReadEnabled(true);
+    // Mark as Read feature disabled - API endpoint not available
+    // UI.setMarkAsReadEnabled(true);
 
   } catch (e) {
     console.error('Fetch error:', e);
@@ -254,7 +256,8 @@ async function handleFetch() {
       UI.showCacheStatus(cacheData.count, cacheData.fetchTime);
       UI.showClearButton();
       UI.setExportEnabled(true);
-      UI.setMarkAsReadEnabled(true);
+      // Mark as Read feature disabled - API endpoint not available
+      // UI.setMarkAsReadEnabled(true);
     }
 
     showMessage(`Error: ${e.message}`, 'error');
