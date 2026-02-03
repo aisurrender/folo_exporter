@@ -49,14 +49,11 @@
       -->
 
       <div class="export-options">
-        <label class="radio-label">
-          <input type="radio" name="format" value="grouped" checked>
-          Group by category
-        </label>
-        <label class="radio-label">
-          <input type="radio" name="format" value="flat">
-          Flat list
-        </label>
+        <select id="format-select" class="format-select">
+          <option value="grouped">分类模式</option>
+          <option value="list">列表模式</option>
+          <option value="json">JSON格式</option>
+        </select>
       </div>
 
       <div class="export-buttons">
@@ -64,7 +61,7 @@
           Copy to Clipboard
         </button>
         <button id="download-btn" class="btn btn-secondary">
-          Download .md
+          Download
         </button>
       </div>
     </div>

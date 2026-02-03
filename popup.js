@@ -1,6 +1,6 @@
 /**
  * Folo Exporter - Popup Script
- * Fetches unread articles from Folo API and exports to Markdown
+ * Fetches unread articles from Folo API and exports to Markdown or JSON
  */
 
 const API_BASE = 'https://api.folo.is';
@@ -407,8 +407,39 @@ function displayResults() {
   `).join('');
 }
 
-function generateMarkdown() {
-  const format = document.querySelector('input[name="format"]:checked').value;
+function generateExport() {
+  const format = document.getElementById('format-select').value;
+
+  if (format === 'json') {
+    return generateJSON();
+  } else {
+    return generateMarkdown(format);
+  }
+}
+
+function generateJSON() {
+  const now = new Date();
+
+  const exportData = {
+    exportTime: now.toISOString(),
+    exportTimeFormatted: now.toLocaleString(),
+    total: articles.length,
+    articles: articles.map(article => ({
+      id: article.id,
+      title: article.title,
+      url: article.url,
+      publishedAt: article.publishedAt,
+      insertedAt: article.insertedAt,
+      summary: article.summary,
+      feedTitle: article.feedTitle,
+      category: article.category
+    }))
+  };
+
+  return JSON.stringify(exportData, null, 2);
+}
+
+function generateMarkdown(format) {
   const now = new Date().toLocaleString();
 
   let md = `# Folo Unread Articles Export\n`;
@@ -474,10 +505,10 @@ function formatDate(isoString) {
 }
 
 async function handleCopy() {
-  const markdown = generateMarkdown();
+  const content = generateExport();
 
   try {
-    await navigator.clipboard.writeText(markdown);
+    await navigator.clipboard.writeText(content);
     showMessage('Copied to clipboard!', 'success');
   } catch (e) {
     console.error('Copy failed:', e);
@@ -486,11 +517,20 @@ async function handleCopy() {
 }
 
 function handleDownload() {
-  const markdown = generateMarkdown();
+  const format = document.getElementById('format-select').value;
+  const content = generateExport();
   const now = new Date().toISOString().split('T')[0];
-  const filename = `folo-export-${now}.md`;
 
-  const blob = new Blob([markdown], { type: 'text/markdown' });
+  let filename, mimeType;
+  if (format === 'json') {
+    filename = `folo-export-${now}.json`;
+    mimeType = 'application/json';
+  } else {
+    filename = `folo-export-${now}.md`;
+    mimeType = 'text/markdown';
+  }
+
+  const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement('a');
