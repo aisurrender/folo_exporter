@@ -4,6 +4,7 @@
  */
 
 const API_BASE = 'https://api.folo.is';
+const READ_API_BASES = ['https://api.folo.is', 'https://api.follow.is'];
 const BATCH_SIZE = 100;  // API 强制限制 100
 const API_MAX_LIMIT = 100;
 const CACHE_KEY = 'folo_cache';
@@ -11,6 +12,7 @@ const CACHE_KEY = 'folo_cache';
 // State
 let articles = [];
 let seenIds = new Set();
+let markedEntryIds = new Set();
 let cacheData = null;
 let isRefreshing = false;
 
@@ -31,6 +33,7 @@ const categoryList = document.getElementById('category-list');
 const exportSection = document.getElementById('export-section');
 const copyBtn = document.getElementById('copy-btn');
 const downloadBtn = document.getElementById('download-btn');
+const autoMarkRead = document.getElementById('auto-mark-read');
 const message = document.getElementById('message');
 const confirmDialog = document.getElementById('confirm-dialog');
 const dialogMessage = document.getElementById('dialog-message');
@@ -127,7 +130,7 @@ const UI = {
       markReadBtn.disabled = true;
       markReadBtn.textContent = '标记中...';
     } else {
-      markReadBtn.disabled = false;
+      markReadBtn.disabled = articles.length === 0;
       markReadBtn.textContent = 'Mark as Read';
     }
   },
@@ -161,14 +164,14 @@ async function init() {
   if (cached && cached.articles.length > 0) {
     cacheData = cached;
     articles = cached.articles;
+    markedEntryIds = new Set();
     displayResults();
     results.classList.remove('hidden');
     exportSection.classList.remove('hidden');
     UI.showCacheStatus(cached.count, cached.fetchTime);
     UI.showClearButton();
     UI.setExportEnabled(true);
-    // Mark as Read feature disabled - API endpoint not available
-    // UI.setMarkAsReadEnabled(true);
+    UI.setMarkAsReadEnabled(true);
   }
 
   // Event listeners
@@ -205,6 +208,7 @@ async function handleFetch() {
   // Reset state
   articles = [];
   seenIds = new Set();
+  markedEntryIds = new Set();
   hideMessage();
   results.classList.add('hidden');
   exportSection.classList.add('hidden');
@@ -239,8 +243,7 @@ async function handleFetch() {
     UI.showCacheStatus(articles.length, Date.now());
     UI.showClearButton();
     UI.setExportEnabled(true);
-    // Mark as Read feature disabled - API endpoint not available
-    // UI.setMarkAsReadEnabled(true);
+    UI.setMarkAsReadEnabled(true);
 
   } catch (e) {
     console.error('Fetch error:', e);
@@ -256,8 +259,7 @@ async function handleFetch() {
       UI.showCacheStatus(cacheData.count, cacheData.fetchTime);
       UI.showClearButton();
       UI.setExportEnabled(true);
-      // Mark as Read feature disabled - API endpoint not available
-      // UI.setMarkAsReadEnabled(true);
+      UI.setMarkAsReadEnabled(true);
     }
 
     showMessage(`Error: ${e.message}`, 'error');
@@ -268,6 +270,7 @@ async function handleClear() {
   await Cache.clear();
   articles = [];
   seenIds = new Set();
+  markedEntryIds = new Set();
   results.classList.add('hidden');
   exportSection.classList.add('hidden');
   UI.hideCacheStatus();
@@ -509,6 +512,21 @@ async function handleCopy() {
 
   try {
     await navigator.clipboard.writeText(content);
+
+    if (autoMarkRead.checked) {
+      const markResult = await markExportedArticles({ withLoading: true });
+      if (markResult.success) {
+        if (markResult.count > 0) {
+          showMessage(`已复制并标记 ${markResult.count} 篇为已读`, 'success');
+        } else {
+          showMessage('已复制到剪贴板', 'success');
+        }
+      } else {
+        showMessage(`已复制，但标记失败：${markResult.error}`, 'error');
+      }
+      return;
+    }
+
     showMessage('Copied to clipboard!', 'success');
   } catch (e) {
     console.error('Copy failed:', e);
@@ -516,7 +534,7 @@ async function handleCopy() {
   }
 }
 
-function handleDownload() {
+async function handleDownload() {
   const format = document.getElementById('format-select').value;
   const content = generateExport();
 
@@ -545,6 +563,21 @@ function handleDownload() {
   a.click();
 
   URL.revokeObjectURL(url);
+
+  if (autoMarkRead.checked) {
+    const markResult = await markExportedArticles({ withLoading: true });
+    if (markResult.success) {
+      if (markResult.count > 0) {
+        showMessage(`已下载并标记 ${markResult.count} 篇为已读`, 'success');
+      } else {
+        showMessage(`Downloaded ${filename}`, 'success');
+      }
+    } else {
+      showMessage(`已下载，但标记失败：${markResult.error}`, 'error');
+    }
+    return;
+  }
+
   showMessage(`Downloaded ${filename}`, 'success');
 }
 
@@ -565,58 +598,122 @@ function handleMarkAsRead() {
 
 async function confirmMarkAsRead() {
   hideConfirmDialog();
-  UI.setMarkAsReadLoading(true);
-
-  try {
-    const result = await markAsRead();
-    if (result.success) {
-      UI.setMarkAsReadSuccess(result.count);
+  const result = await markExportedArticles({ withLoading: true });
+  if (result.success) {
+    if (result.count > 0) {
       showMessage(`✓ 已标记 ${result.count} 篇文章为已读`, 'success');
     } else {
-      showMessage(`标记失败：${result.error}`, 'error');
+      showMessage('没有可标记的文章', 'success');
     }
-  } catch (e) {
-    console.error('Mark as read error:', e);
-    showMessage(`标记失败：${e.message}`, 'error');
-  } finally {
-    UI.setMarkAsReadLoading(false);
+  } else {
+    showMessage(`标记失败：${result.error}`, 'error');
   }
 }
 
-async function markAsRead() {
-  // Get all entry IDs (filter out null IDs)
+function getUnmarkedEntryIds() {
+  // Get all entry IDs (filter out null IDs and skip already marked ones)
   const entryIds = articles
     .map(a => a.id)
-    .filter(id => id != null);
+    .filter(id => id != null && !markedEntryIds.has(id));
+
+  return entryIds;
+}
+
+async function markExportedArticles({ withLoading = false } = {}) {
+  if (withLoading) {
+    UI.setMarkAsReadLoading(true);
+  }
+
+  try {
+    const result = await markAsRead();
+    if (result.success && result.count > 0) {
+      result.entryIds.forEach(id => markedEntryIds.add(id));
+      await refreshFoloWebTabs();
+      UI.setMarkAsReadSuccess(result.count);
+      await resetAfterMarkAsRead();
+    }
+    return result;
+  } catch (e) {
+    console.error('Mark as read error:', e);
+    return { success: false, error: e.message };
+  } finally {
+    if (withLoading) {
+      UI.setMarkAsReadLoading(false);
+    }
+  }
+}
+
+async function refreshFoloWebTabs() {
+  if (!chrome.tabs || !chrome.tabs.query) return;
+
+  try {
+    const tabs = await chrome.tabs.query({});
+    const foloTabs = tabs.filter(tab =>
+      typeof tab.url === 'string' && tab.url.startsWith('https://app.folo.is')
+    );
+
+    await Promise.all(foloTabs.map(tab => new Promise((resolve) => {
+      if (typeof tab.id !== 'number') {
+        resolve();
+        return;
+      }
+
+      chrome.tabs.reload(tab.id, {}, () => resolve());
+    })));
+
+    if (foloTabs.length > 0) {
+      console.log(`[Folo Exporter] Refreshed ${foloTabs.length} Folo tab(s) after mark-as-read`);
+    }
+  } catch (e) {
+    console.warn('[Folo Exporter] Failed to refresh Folo tabs:', e);
+  }
+}
+
+async function resetAfterMarkAsRead() {
+  await Cache.clear();
+  cacheData = null;
+  articles = [];
+  seenIds = new Set();
+  markedEntryIds = new Set();
+  results.classList.add('hidden');
+  exportSection.classList.add('hidden');
+  UI.hideCacheStatus();
+  UI.hideClearButton();
+  UI.setExportEnabled(false);
+  UI.setMarkAsReadEnabled(false);
+}
+
+async function markAsRead() {
+  const entryIds = getUnmarkedEntryIds();
 
   console.log(`[Folo Exporter] Marking ${entryIds.length} entries as read`);
 
   if (entryIds.length === 0) {
-    return { success: false, error: '没有有效的文章 ID' };
+    return { success: true, count: 0, entryIds: [] };
   }
 
-  // Try different endpoints for api.folo.is
-  // The backend API uses /reads/markAsRead but the frontend API might be different
-  const endpoints = [
-    // Try the backend API path first
-    {
-      url: `${API_BASE}/reads/markAsRead`,
+  // Follow 官方 SDK 路由: POST /reads
+  // 依次尝试 api.folo.is 与 api.follow.is，兼容不同部署。
+  const endpoints = [];
+  READ_API_BASES.forEach((base) => {
+    endpoints.push({
+      url: `${base}/reads`,
       method: 'POST',
       body: { entryIds, isInbox: false }
-    },
-    // Alternative: PATCH /entries
-    {
-      url: `${API_BASE}/entries`,
-      method: 'PATCH',
-      body: { entryIds, read: true }
-    },
-    // Alternative: POST /entries/read
-    {
-      url: `${API_BASE}/entries/read`,
+    });
+    endpoints.push({
+      url: `${base}/reads`,
       method: 'POST',
       body: { entryIds }
-    }
-  ];
+    });
+  });
+  // Legacy guess kept as last fallback
+  endpoints.push({
+    url: `${API_BASE}/reads/markAsRead`,
+    method: 'POST',
+    body: { entryIds, isInbox: false }
+  });
+  const failures = [];
 
   for (const endpoint of endpoints) {
     console.log(`[Folo Exporter] Trying: ${endpoint.method} ${endpoint.url}`);
@@ -634,17 +731,34 @@ async function markAsRead() {
       if (response.ok) {
         const result = await response.json().catch(() => ({}));
         console.log(`[Folo Exporter] Success! Response:`, result);
-        return { success: true, count: entryIds.length };
+        return { success: true, count: entryIds.length, entryIds };
       }
 
       const errorText = await response.text();
       console.log(`[Folo Exporter] Failed: ${errorText}`);
+      failures.push({ status: response.status, url: endpoint.url, body: endpoint.body });
     } catch (e) {
       console.log(`[Folo Exporter] Error: ${e.message}`);
+      failures.push({ status: 0, url: endpoint.url, error: e.message, body: endpoint.body });
     }
   }
 
-  return { success: false, error: '所有 API 端点都失败，请查看控制台获取详情' };
+  const all404 = failures.length > 0 && failures.every(f => f.status === 404);
+  if (all404) {
+    return {
+      success: false,
+      error: '当前账号环境未开放“标记已读”接口（/reads 返回 404）',
+      count: 0,
+      entryIds: []
+    };
+  }
+
+  return {
+    success: false,
+    error: '标记已读请求失败，请查看控制台日志',
+    count: 0,
+    entryIds: []
+  };
 }
 
 function showMessage(text, type) {

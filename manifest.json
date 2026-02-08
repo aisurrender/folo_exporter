@@ -5,10 +5,12 @@
   "description": "Export all unread articles from Folo (app.folo.is) to Markdown format via API.",
   "permissions": [
     "clipboardWrite",
-    "storage"
+    "storage",
+    "tabs"
   ],
   "host_permissions": [
-    "https://api.folo.is/*"
+    "https://api.folo.is/*",
+    "https://api.follow.is/*"
   ],
   "action": {
     "default_popup": "popup.html",
